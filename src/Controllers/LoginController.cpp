@@ -2,6 +2,7 @@
 
 #include <jwt-cpp/jwt.h>
 
+#include <drogon/HttpClient.h>
 #include <drogon/orm/Mapper.h>
 
 using namespace std::chrono_literals;
@@ -30,32 +31,14 @@ void LoginController::registerUser(const HttpRequestPtr& req, Callback&& callbac
 
 void LoginController::login(const HttpRequestPtr& req, Callback&& callback)
 {
-    if(const auto request = req->getJsonObject();
-        validateUser(request))
-    {
-        // Just a template - change it however you want
-        const auto userId = (*request)["user_id"].asInt();
-        const auto username = (*request)["username"].asString();
-        
-        const auto accessToken = makeAccessToken(userId, username);
-        const auto refreshToken = makeRefreshToken(userId, username);
+    const auto& config = app().getCustomConfig();
+    const auto link = std::format(
+        oauth2Template,
+        config["oauth2"]["client_id"].asString(),
+        config["oauth2"]["redirect_uri"].asString()
+    );
 
-        Json::Value json;
-        json["token"] = accessToken;
-
-        const auto response = HttpResponse::newHttpJsonResponse(json);
-
-        saveRefreshToCookie(refreshToken, response);
-
-        callback(response);
-    }
-    else
-    {
-        const auto response = HttpResponse::newHttpResponse();
-        response->setStatusCode(k401Unauthorized);
-
-        callback(response);
-    }
+    callback(HttpResponse::newRedirectionResponse(link));
 }
 
 void LoginController::refresh(const HttpRequestPtr& req, Callback&& callback)
@@ -112,6 +95,34 @@ void LoginController::logout(const HttpRequestPtr& req, Callback&& callback)
     saveRefreshToCookie("", response, 0);
 
     callback(response);
+}
+
+void LoginController::oauth(const HttpRequestPtr& req, Callback&& callback, const std::string& code)
+{
+    LOG_INFO << "OAuth2 code: " << code;
+
+    const auto& config = app().getCustomConfig();
+
+    static const auto client = HttpClient::newHttpClient("https://oauth2.googleapis.com/token");
+
+    const auto request = HttpRequest::newHttpFormPostRequest();
+    request->setPath("/token");
+    request->setParameter("code", code);
+    request->setParameter("client_id", config["oauth2"]["client_id"].asString());
+    request->setParameter("client_secret", config["oauth2"]["client_secret"].asString());
+    request->setParameter("redirect_uri", config["oauth2"]["redirect_uri"].asString());
+    request->setParameter("grant_type", "authorization_code");
+
+    client->sendRequest(request,
+        [callback](ReqResult reqRes, const HttpResponsePtr& resp)
+        {
+            const auto& json = *resp->getJsonObject();
+            const auto access = json["access_token"].asString();
+
+            LOG_INFO << "Access token: " << access;
+
+            callback(HttpResponse::newRedirectionResponse("/success?msg=Done"));
+        });
 }
 
 void LoginController::saveRefreshToCookie(const std::string& token, const HttpResponsePtr& resp, const int maxAge)

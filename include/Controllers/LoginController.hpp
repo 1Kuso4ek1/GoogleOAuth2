@@ -11,19 +11,23 @@ namespace Controllers
 class LoginController final : public HttpController<LoginController>
 {
 public:
-    void registerUser(const HttpRequestPtr& req, Callback&& callback);
-    void login(const HttpRequestPtr& req, Callback&& callback);
+    static void registerUser(const HttpRequestPtr& req, Callback&& callback);
+    static void login(const HttpRequestPtr& req, Callback&& callback);
 
     static void refresh(const HttpRequestPtr& req, Callback&& callback);
     static void logout(const HttpRequestPtr& req, Callback&& callback);
 
+    static void oauth(const HttpRequestPtr& req, Callback&& callback, const std::string& code);
+
 public:
     METHOD_LIST_BEGIN
 
-        ADD_METHOD_TO(LoginController::registerUser, "/register", Post);
-        ADD_METHOD_TO(LoginController::login, "/login", Post);
-        ADD_METHOD_TO(LoginController::refresh, "/refresh", Post);
-        ADD_METHOD_TO(LoginController::logout, "/logout", Post);
+        ADD_METHOD_TO(registerUser, "/register", Post);
+        ADD_METHOD_TO(login, "/login", Get);
+        ADD_METHOD_TO(refresh, "/refresh", Post);
+        ADD_METHOD_TO(logout, "/logout", Post);
+
+        ADD_METHOD_TO(oauth, "/oauth?code={code}", Get);
 
     METHOD_LIST_END
 
@@ -35,6 +39,10 @@ private:
 
     static std::string makeAccessToken(int id, const std::string& username);
     static std::string makeRefreshToken(int id, const std::string& username);
+
+private:
+    static constexpr auto oauth2Template =
+        "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope=profile";
 };
 
 }
