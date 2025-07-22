@@ -30,6 +30,7 @@ set(
     src/Filters/JwtFilter.cpp
 
     src/main.cpp
+    include/Utils/JwtUtils.hpp
 )
 
 set(CMAKE_CXX_STANDARD 20)

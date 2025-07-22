@@ -21,4 +21,12 @@ void StaticController::success(const HttpRequestPtr& req, Callback&& callback, c
     callback(resp);
 }
 
+void StaticController::protectedPage(const HttpRequestPtr& req, Callback&& callback)
+{
+    const auto resp = HttpResponse::newHttpResponse();
+    resp->setBody("<html><head></head><body>Protected page</body></html>");
+
+    callback(resp);
+}
+
 }

@@ -1,6 +1,6 @@
-#include <Controllers/LoginController.hpp>
+#include "Controllers/LoginController.hpp"
 
-#include <jwt-cpp/jwt.h>
+#include "Utils/JwtUtils.hpp"
 
 #include <drogon/HttpClient.h>
 #include <drogon/orm/Mapper.h>
@@ -10,81 +10,20 @@ using namespace std::chrono_literals;
 namespace Controllers
 {
 
-void LoginController::registerUser(const HttpRequestPtr& req, Callback&& callback)
-{
-    if(const auto request = req->getJsonObject();
-        !request || !request->isMember("username") || !request->isMember("password"))
-    {
-        const auto response = HttpResponse::newHttpResponse();
-        response->setStatusCode(k400BadRequest);
-
-        callback(response);
-        return;
-    }
-
-    // Implement your own logic...
-    // auto dbClient = app().getDbClient();
-    // auto& mapper = orm::Mapper<models::User>(dbClient);
-
-    login(req, std::move(callback));
-}
-
 void LoginController::login(const HttpRequestPtr& req, Callback&& callback)
 {
     const auto& config = app().getCustomConfig();
+    const auto state = utils::secureRandomString(12);
     const auto link = std::format(
         oauth2Template,
         config["oauth2"]["client_id"].asString(),
-        config["oauth2"]["redirect_uri"].asString()
+        config["oauth2"]["redirect_uri"].asString(),
+        state
     );
 
+    req->getSession()->insert("oauth2_state", state);
+
     callback(HttpResponse::newRedirectionResponse(link));
-}
-
-void LoginController::refresh(const HttpRequestPtr& req, Callback&& callback)
-{
-    static auto refreshSecret = app().getCustomConfig()["jwt"]["refresh_secret"].asString();
-
-    const auto refreshToken = req->getCookie("refreshToken");
-
-    if(refreshToken.empty())
-    {
-        const auto response = HttpResponse::newHttpResponse();
-        response->setStatusCode(k401Unauthorized);
-
-        callback(response);
-        return;
-    }
-
-    try
-    {
-        const auto decoded = jwt::decode(refreshToken);
-        const auto verifier = jwt::verify()
-            .allow_algorithm(jwt::algorithm::hs256(refreshSecret))
-            .with_issuer("auth0");
-
-        verifier.verify(decoded);
-
-        const auto accessToken =
-            makeAccessToken(
-                decoded.get_payload_claim("user_id").as_integer(),
-                decoded.get_payload_claim("username").as_string()
-            );
-
-        Json::Value json;
-        json["token"] = accessToken;
-
-        const auto response = HttpResponse::newHttpJsonResponse(json);
-
-        callback(response);
-    }
-    catch(...)
-    {
-        const auto response = HttpResponse::newHttpResponse();
-        response->setStatusCode(k401Unauthorized);
-
-        callback(response);
-    }
 }
 
 void LoginController::logout(const HttpRequestPtr& req, Callback&& callback)
@@ -92,18 +31,33 @@ void LoginController::logout(const HttpRequestPtr& req, Callback&& callback)
     const auto response = HttpResponse::newHttpResponse();
 
     // Removing cookie
-    saveRefreshToCookie("", response, 0);
+    Utils::saveRefreshToCookie("", response, 0);
+
+    // Clearing session
+    req->getSession()->erase("jwtAccess");
 
     callback(response);
 }
 
-void LoginController::oauth(const HttpRequestPtr& req, Callback&& callback, const std::string& code)
+void LoginController::oauth(
+    const HttpRequestPtr& req, Callback&& callback,
+    const std::string& code, const std::string& state
+)
 {
+    if(const auto sessionState = req->getSession()->get<std::string>("oauth2_state");
+        state != sessionState || sessionState.empty())
+    {
+        callback(HttpResponse::newHttpResponse(k400BadRequest, CT_NONE));
+        return;
+    }
+
+    req->getSession()->erase("oauth2_state");
+
     LOG_INFO << "OAuth2 code: " << code;
 
     const auto& config = app().getCustomConfig();
 
-    static const auto client = HttpClient::newHttpClient("https://oauth2.googleapis.com/token");
+    static const auto client = HttpClient::newHttpClient("https://oauth2.googleapis.com/");
 
     const auto request = HttpRequest::newHttpFormPostRequest();
     request->setPath("/token");
@@ -114,75 +68,51 @@ void LoginController::oauth(const HttpRequestPtr& req, Callback&& callback, cons
     request->setParameter("grant_type", "authorization_code");
 
     client->sendRequest(request,
-        [callback](ReqResult reqRes, const HttpResponsePtr& resp)
+        [callback = std::move(callback), req](const ReqResult reqRes, const HttpResponsePtr& resp)
         {
             const auto& json = *resp->getJsonObject();
             const auto access = json["access_token"].asString();
 
             LOG_INFO << "Access token: " << access;
 
-            callback(HttpResponse::newRedirectionResponse("/success?msg=Done"));
+            requestUser(req, access, static_cast<Callback>(std::move(callback)));
         });
 }
 
-void LoginController::saveRefreshToCookie(const std::string& token, const HttpResponsePtr& resp, const int maxAge)
+void LoginController::requestUser(const HttpRequestPtr& req, const std::string& accessToken, Callback&& callback)
 {
-    Cookie cookie("refreshToken", token);
-    cookie.setHttpOnly(true);
-    cookie.setSecure(true);
-    cookie.setSameSite(Cookie::SameSite::kStrict);
-    cookie.setPath("/refresh");
-    cookie.setMaxAge(maxAge);
+    static const auto client = HttpClient::newHttpClient("https://www.googleapis.com/");
 
-    resp->addCookie(cookie);
+    const auto request = HttpRequest::newHttpRequest();
+    request->setPath("/oauth2/v2/userinfo");
+    request->addHeader("Authorization", std::format("Bearer {}", accessToken));
+
+    client->sendRequest(request,
+        [callback = std::move(callback), req](const ReqResult reqRes, const HttpResponsePtr& resp)
+        {
+            if(const auto json = resp->getJsonObject(); json)
+            {
+                const auto [access, refresh] = processUser(*json);
+
+                req->getSession()->insert("jwtAccess", access);
+
+                Utils::saveRefreshToCookie(refresh, resp);
+
+                callback(HttpResponse::newRedirectionResponse("/protected"));
+            }
+            else
+                LOG_ERROR << "Failed to get user info";
+        });
 }
 
-bool LoginController::validateUser(const std::shared_ptr<Json::Value>& json)
+std::pair<std::string, std::string> LoginController::processUser(const Json::Value& user)
 {
-    // Implement your own validation logic
-    return true;
-}
+    LOG_INFO << "User info: " << user.toStyledString();
 
-std::string LoginController::makeAccessToken(const int id, const std::string& username)
-{
-    static auto accessSecret = app().getCustomConfig()["jwt"]["access_secret"].asString();
+    const auto access = Utils::makeAccessToken(1, user["name"].asString());
+    const auto refresh = Utils::makeRefreshToken(1, user["name"].asString());
 
-    auto token = jwt::create()
-        .set_issuer("auth0")
-        .set_type("JWS")
-        .set_expires_in(3600s) // 1 hour
-        .set_payload_claim(
-            "user_id",
-            jwt::claim(std::to_string(id))
-        )
-        .set_payload_claim(
-            "username",
-            jwt::claim(username)
-        )
-        .sign(jwt::algorithm::hs256(accessSecret)); // Change the secret to something *really* secret (in config)
-
-    return token;
-}
-
-std::string LoginController::makeRefreshToken(const int id, const std::string& username)
-{
-    static auto refreshSecret = app().getCustomConfig()["jwt"]["refresh_secret"].asString();
-
-    auto token = jwt::create()
-        .set_issuer("auth0")
-        .set_type("JWS")
-        .set_expires_in(604800s) // 7 days
-        .set_payload_claim(
-            "user_id",
-            jwt::claim(std::to_string(id))
-        )
-        .set_payload_claim(
-            "username",
-            jwt::claim(username)
-        )
-        .sign(jwt::algorithm::hs256(refreshSecret));
-
-    return token;
+    return { access, refresh };
 }
 
 }

@@ -16,6 +16,8 @@ public:
 
     static void success(const HttpRequestPtr& req, Callback&& callback, const std::string& msg);
 
+    static void protectedPage(const HttpRequestPtr& req, Callback&& callback);
+
 public:
     METHOD_LIST_BEGIN
 
@@ -23,6 +25,8 @@ public:
         ADD_METHOD_TO(swaggerFile, "/swagger/swagger.json", Get);
 
         ADD_METHOD_TO(success, "/success?msg={msg}", Get);
+
+        ADD_METHOD_TO(protectedPage, "/protected", Get, "Filters::JwtFilter");
 
     METHOD_LIST_END
 
