@@ -13,7 +13,7 @@ namespace Controllers
 void LoginController::login(const HttpRequestPtr& req, Callback&& callback)
 {
     const auto& config = app().getCustomConfig();
-    const auto state = utils::secureRandomString(12);
+    const auto state = utils::base64Encode(utils::secureRandomString(12));
     const auto link = std::format(
         oauth2Template,
         config["oauth2"]["client_id"].asString(),
