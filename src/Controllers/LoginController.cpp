@@ -70,12 +70,21 @@ void LoginController::oauth(
     client->sendRequest(request,
         [callback = std::move(callback), req](const ReqResult reqRes, const HttpResponsePtr& resp)
         {
-            const auto& json = *resp->getJsonObject();
-            const auto access = json["access_token"].asString();
+            if(resp->getJsonObject())
+            {
+                const auto& json = *resp->getJsonObject();
+                const auto access = json["access_token"].asString();
 
-            LOG_INFO << "Access token: " << access;
+                LOG_INFO << "Access token: " << access;
 
-            requestUser(req, access, static_cast<Callback>(callback));
+                requestUser(req, access, static_cast<Callback>(callback));
+            }
+            else
+            {
+                LOG_ERROR << "Failed to get access token";
+
+                callback(HttpResponse::newHttpResponse(k400BadRequest, CT_NONE));
+            }
         });
 }
 

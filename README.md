@@ -1,6 +1,6 @@
-# Drogon template
+# GoogleOAuth2 template
 
-This is a template for a Drogon C++ web application. It includes a basic structure for building a RESTful API with database integration, JWT authentication, and more.
+This is a template for a Drogon C++ web application. It includes a basic structure for building a RESTful API with Google OAuth2, database integration, JWT authentication, and more.
 
 ## Table of Contents
 
