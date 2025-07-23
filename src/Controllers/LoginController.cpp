@@ -101,27 +101,26 @@ void LoginController::requestUser(const HttpRequestPtr& req, const std::string& 
         {
             if(const auto json = resp->getJsonObject(); json)
             {
-                const auto [access, refresh] = processUser(*json);
+                const auto response = HttpResponse::newRedirectionResponse("/protected");
+                processUser(req, response, *json);
 
-                req->getSession()->insert("jwtAccess", access);
-
-                Utils::saveRefreshToCookie(refresh, resp);
-
-                callback(HttpResponse::newRedirectionResponse("/protected"));
+                callback(response);
             }
             else
                 LOG_ERROR << "Failed to get user info";
         });
 }
 
-std::pair<std::string, std::string> LoginController::processUser(const Json::Value& user)
+void LoginController::processUser(const HttpRequestPtr& req, const HttpResponsePtr& resp, const Json::Value& user)
 {
     LOG_INFO << "User info: " << user.toStyledString();
 
     const auto access = Utils::makeAccessToken(1, user["name"].asString());
     const auto refresh = Utils::makeRefreshToken(1, user["name"].asString());
 
-    return { access, refresh };
+    req->getSession()->insert("jwtAccess", access);
+
+    Utils::saveRefreshToCookie(refresh, resp);
 }
 
 }

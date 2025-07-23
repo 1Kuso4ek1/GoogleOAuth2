@@ -31,8 +31,7 @@ public:
 
 private:
     static void requestUser(const HttpRequestPtr& req, const std::string& accessToken, Callback&& callback);
-
-    static std::pair<std::string, std::string> processUser(const Json::Value& user);
+    static void processUser(const HttpRequestPtr& req, const HttpResponsePtr& resp, const Json::Value& user);
 
 private:
     static constexpr auto oauth2Template =

@@ -16,7 +16,6 @@ inline void saveRefreshToCookie(const std::string& token, const HttpResponsePtr&
     cookie.setHttpOnly(true);
     cookie.setSecure(true);
     cookie.setSameSite(Cookie::SameSite::kStrict);
-    cookie.setPath("/refresh");
     cookie.setMaxAge(maxAge);
 
     resp->addCookie(cookie);
