@@ -28,8 +28,8 @@ Before you begin, ensure you have the following installed:
 2. Run the following command:
 
     ```bash
-    git clone --recursive --depth=1 --shallow-submodules https://github.com/1Kuso4ek1/drogon-template.git
-    cd drogon-template
+    git clone --recursive --depth=1 --shallow-submodules https://github.com/1Kuso4ek1/GoogleOAuth2.git
+    cd GoogleOAuth2
     ```
 
     **Note:** The `--depth=1 --shallow-submodules` flags are used for faster cloning. If you need to work with the Drogon submodule directly (e.g., switch branches), you might need to clone without these flags.
