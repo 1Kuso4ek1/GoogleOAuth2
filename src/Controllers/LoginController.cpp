@@ -75,7 +75,7 @@ void LoginController::oauth(
 
             LOG_INFO << "Access token: " << access;
 
-            requestUser(req, access, static_cast<Callback>(std::move(callback)));
+            requestUser(req, access, static_cast<Callback>(callback));
         });
 }
 
